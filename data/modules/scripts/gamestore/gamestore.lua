@@ -10,8 +10,8 @@ dofile(CORE_DIRECTORY .. "/modules/scripts/gamestore/init.lua")
 -- Config
 
 HomeBanners = {
-	images = { "home/banner_armouredarcher.png", "home/banner_podiumoftenacity.png" },
-	delay = 10,
+	images = { "home/banner_arbalester.png", "home/banner_babyelephant.png", "home/banner_bedcarpets.png", "home/banner_cunninghyaena.png", "home/banner_pumpkinmummy.png" },
+	delay = 10
 }
 
 local premiumCategoryName = "Premium Time"
