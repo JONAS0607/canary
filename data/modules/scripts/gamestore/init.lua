@@ -276,18 +276,18 @@ function parseTransferableCoins(playerId, msg)
 		return false
 	end
 
-	local reciver = msg:getString()
+	local receiver = msg:getString()
 	local amount = msg:getU32()
 
-	if player:getTransferableCoins() < amount then
+	if player:getTransferableCoins() < amount or player:getTibiaCoins() < amount then
 		return addPlayerEvent(sendStoreError, 350, playerId, GameStore.StoreErrors.STORE_ERROR_TRANSFER, "You don't have this amount of coins.")
 	end
 
-	if reciver:lower() == player:getName():lower() then
+	if receiver:lower() == player:getName():lower() then
 		return addPlayerEvent(sendStoreError, 350, playerId, GameStore.StoreErrors.STORE_ERROR_TRANSFER, "You can't transfer coins to yourself.")
 	end
 
-	local resultId = db.storeQuery("SELECT `account_id` FROM `players` WHERE `name` = " .. db.escapeString(reciver:lower()) .. "")
+	local resultId = db.storeQuery("SELECT `account_id` FROM `players` WHERE `name` = " .. db.escapeString(receiver:lower()) .. "")
 	if not resultId then
 		return addPlayerEvent(sendStoreError, 350, playerId, GameStore.StoreErrors.STORE_ERROR_TRANSFER, "We couldn't find that player.")
 	end
@@ -297,15 +297,17 @@ function parseTransferableCoins(playerId, msg)
 		return addPlayerEvent(sendStoreError, 350, playerId, GameStore.StoreErrors.STORE_ERROR_TRANSFER, "You cannot transfer coin to a character in the same account.")
 	end
 
-	db.query("UPDATE `accounts` SET `coins_transferable` = `coins_transferable` + " .. amount .. " WHERE `id` = " .. accountId)
+	db.query("UPDATE `accounts` SET `coins_transferable` = `coins_transferable` + " .. amount .. ", `coins` = `coins` + " .. amount .. " WHERE `id` = " .. accountId)
 	player:removeTransferableCoinsBalance(amount)
-	addPlayerEvent(sendStorePurchaseSuccessful, 550, playerId, "You have transfered " .. amount .. " coins to " .. reciver .. " successfully")
+	player:removeCoinsBalance(amount)
+	addPlayerEvent(sendStorePurchaseSuccessful, 550, playerId, "You have transferred " .. amount .. " coins to " .. receiver .. " successfully")
 
 	-- Adding history for both receiver/sender
 	GameStore.insertHistory(accountId, GameStore.HistoryTypes.HISTORY_TYPE_NONE, player:getName() .. " transferred you this amount.", amount, GameStore.CoinType.Transferable)
-	GameStore.insertHistory(player:getAccountId(), GameStore.HistoryTypes.HISTORY_TYPE_NONE, "You transferred this amount to " .. reciver, -1 * amount, GameStore.CoinType.Transferable)
+	GameStore.insertHistory(player:getAccountId(), GameStore.HistoryTypes.HISTORY_TYPE_NONE, "You transferred this amount to " .. receiver, -1 * amount, GameStore.CoinType.Transferable)
+	GameStore.insertHistory(accountId, GameStore.HistoryTypes.HISTORY_TYPE_NONE, player:getName() .. " transferred you this amount.", amount, GameStore.CoinType.Coin)
+	GameStore.insertHistory(player:getAccountId(), GameStore.HistoryTypes.HISTORY_TYPE_NONE, "You transferred this amount to " .. receiver, -1 * amount, GameStore.CoinType.Coin)
 	openStore(playerId)
-	player:updateUIExhausted()
 end
 
 function parseOpenStore(playerId, msg)
@@ -2019,6 +2021,7 @@ end
 
 function Player.addCoinsBalance(self, coins, update)
 	self:addTibiaCoins(coins)
+	self:addTransferableCoins(coins) --EU MUDEI
 	if update then
 		sendStoreBalanceUpdating(self:getId(), true)
 	end
@@ -2048,8 +2051,9 @@ function Player.addTransferableCoinsBalance(self, coins, update)
 	return true
 end
 
---- Support Functions
+--- Support Functions eu mudei, remove duas moedas por tranzação
 function Player.makeCoinTransaction(self, offer, desc)
+	local coinsToRemove = offer.price
 	local op = false
 
 	if desc then
@@ -2058,15 +2062,19 @@ function Player.makeCoinTransaction(self, offer, desc)
 		desc = offer.name
 	end
 
-	if offer.coinType == GameStore.CoinType.Coin and self:canRemoveCoins(offer.price) then
-		op = self:removeCoinsBalance(offer.price)
-	elseif offer.coinType == GameStore.CoinType.Transferable and self:canRemoveTransferableCoins(offer.price) then
-		op = self:removeTransferableCoinsBalance(offer.price)
+	-- Tenta remover moedas normais
+	if self:canRemoveCoins(coinsToRemove) then
+		op = self:removeCoinsBalance(coinsToRemove)
 	end
 
-	-- When the transaction is successful add to the history
+	-- Tenta remover moedas transferíveis
+	if self:canRemoveTransferableCoins(coinsToRemove) then
+		op = self:removeTransferableCoinsBalance(coinsToRemove)
+	end
+
+	-- Quando a transação é bem-sucedida, adiciona ao histórico
 	if op then
-		GameStore.insertHistory(self:getAccountId(), GameStore.HistoryTypes.HISTORY_TYPE_NONE, desc, offer.price * -1, offer.coinType)
+		GameStore.insertHistory(self:getAccountId(), GameStore.HistoryTypes.HISTORY_TYPE_NONE, desc, coinsToRemove * -1, offer.coinType)
 	end
 
 	return op
